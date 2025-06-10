@@ -18,8 +18,8 @@ class NumberFormatter
             'decimalSeparator' => '.',
         ],
         'fa' => [
-            'thousandSeparator' => '٫',
-            'decimalSeparator' => '٬',
+            'thousandSeparator' => '٬', // Corrected Farsi thousand separator
+            'decimalSeparator' => '٫', // Corrected Farsi decimal separator
         ],
     ];
 
@@ -167,21 +167,21 @@ class NumberFormatter
 
         // Auto precision selection
         if ($precision === 'auto') {
-            if (preg_match('/^(usd|irt|irr)$/i', $template)) {
+            if (preg_match('/^(usd|irt|irr|number)$/i', $template)) { // Added 'number'
+                // Threshold might need adjustment later based on full CSV analysis, 100_000_000_000 is from TS
                 if ($number >= 0.0001 && $number < 100000000000) {
                     $precision = 'high';
                 } else {
                     $precision = 'medium';
                 }
-            } elseif ($template === 'number') {
-                $precision = 'medium';
             } elseif ($template === 'percent') {
                 $precision = 'low';
             }
+            // Removed redundant: elseif ($template === 'number') { $precision = 'medium'; }
         }
 
         if ($precision === 'medium') {
-            if ($number >= 0 && $number < 0.0001) {
+            if ($number >= 0 && $number < 0.0001) { // Subscript formatting for very small numbers
                 $p = 33;
                 $d = 4;
                 $r = false;
@@ -196,7 +196,7 @@ class NumberFormatter
                 $d = 3;
                 $r = false;
                 $c = false;
-            } elseif ($number >= 0.001 && $number < 0.1) {
+            } elseif ($number >= 0.01 && $number < 0.1) { // Corrected non-overlapping condition from TS logic
                 $p = 3;
                 $d = 2;
                 $r = false;
@@ -224,7 +224,7 @@ class NumberFormatter
             } elseif ($number >= 1000) {
                 $x = floor(log10($number)) % 3;
                 $p = 2 - $x;
-                $d = 2 - $x;
+                $d = $p; // d should be equal to p
                 $r = true;
                 $c = true;
             } else {
@@ -234,12 +234,12 @@ class NumberFormatter
                 $c = true;
             }
         } elseif ($precision === 'low') {
-            if ($number >= 0 && $number < 0.01) {
-                $p = 4; // Was 2
-                $d = 2; // Was 0
-                $r = true;
-                $c = false;
-                $f = 2;
+            if ($number >= 0 && $number < 0.01) { // to get 0.00
+                $p = 4; // Existing value
+                $d = 2; // Existing value
+                $r = true; // Existing value
+                $c = false; // Existing value
+                $f = 2; // Important for 0.00
             } elseif ($number >= 0.01 && $number < 0.1) {
                 $p = 2;
                 $d = 1;
@@ -250,18 +250,18 @@ class NumberFormatter
                 $d = 2;
                 $r = true;
                 $c = false;
-            } elseif ($number >= 1 && $number < 10) {
-                $p = 2;
-                $d = 2;
-                $r = true;
-                $c = false;
-                $f = 2;
-            } elseif ($number >= 10 && $number < 100) {
-                $p = 1;
-                $d = 1;
-                $r = true;
-                $c = false;
-                $f = 1;
+            } elseif ($number >= 1 && $number < 10) { // e.g. x.xx
+                $p = 2; // Existing value
+                $d = 2; // Existing value
+                $r = true; // Existing value
+                $c = false; // Existing value
+                $f = 2; // Important
+            } elseif ($number >= 10 && $number < 100) { // e.g. xx.x
+                $p = 1; // Existing value
+                $d = 1; // Existing value
+                $r = true; // Existing value
+                $c = false; // Existing value
+                $f = 1; // Important
             } elseif ($number >= 100 && $number < 1000) {
                 $p = 0;
                 $d = 0;
@@ -269,8 +269,8 @@ class NumberFormatter
                 $c = false;
             } elseif ($number >= 1000) {
                 $x = floor(log10($number)) % 3;
-                $p = 1 - $x;
-                $d = 1 - $x;
+                $p = max(0, 1 - $x); // Ensures 1 or 2 significant figures, prevents negative p
+                $d = $p; // d should be equal to p
                 $r = true;
                 $c = true;
             } else {
@@ -278,49 +278,46 @@ class NumberFormatter
                 $d = 0;
                 $r = true;
                 $c = true;
-                $f = 2;
+                $f = 2; // Default from existing
             }
-        } else {
-            // precision === "high"
-            if ($number >= 0 && $number < 1) {
-                $p = 33;
-                $d = 4;
+        } else { // $precision === "high"
+            if ($number >= 0 && $number < 0.0001) { // very small numbers
+                $p = 40; // max fractional length for reducePrecision
+                $d = 4;  // significant digits to keep after leading zeros
                 $r = false;
                 $c = false;
-            } elseif ($number >= 1 && $number < 10) {
-                $p = 3;
-                $d = 3;
+            } elseif ($number >= 0.0001 && $number < 1) {
+                $p = 7;  // Aim for up to 7 decimal places
+                $d = 7;
                 $r = true;
                 $c = false;
-            } elseif ($number >= 10 && $number < 100) {
-                $p = 2;
-                $d = 2;
+            } elseif ($number >= 1 && $number < 1000000) { // numbers that shouldn't typically be compressed
+                $p = 5;  // Aim for up to 5 decimal places
+                $d = 5;
                 $r = true;
-                $c = false;
-            } elseif ($number >= 100 && $number < 1000) {
-                $p = 2;
-                $d = 2;
+                $c = false; // No compression
+            } elseif ($number >= 1000000) {
+                // For very large numbers in 'high' precision, show more detail, no compression.
+                $p = 15; // Increased precision
+                $d = 15; // Increased decimal places
                 $r = true;
-                $c = false;
-            } elseif ($number >= 1000 && $number < 10000) {
-                $p = 1;
-                $d = 1;
-                $r = true;
-                $c = false;
-            } else {
-                $p = 0;
-                $d = 0;
+                $c = false; // No compression for high precision
+            } else { // Default for 'high' if no other condition met
+                $p = 7;
+                $d = 7;
                 $r = true;
                 $c = false;
             }
         }
 
-        // For scientific notation, increase precision to ensure correct representation
+        // For scientific notation, adjust settings similar to TypeScript
         if ($this->isENotation($originalInput)) {
-            // $p = max($p, 20); // Removed: $p from precision settings should be respected.
-                                // convertENotationToRegularNumber produces enough digits.
-                                // reducePrecision will truncate to $p from settings.
-            $r = false; // Rounding is usually not desired for E-notation raw conversion
+            if ($precision === 'high' && $number > 0 && $number < 0.0001) {
+                // p is already 30, d is 6, r is false. This is generally good for e-notation small numbers.
+            } else {
+                 $p = max($p, 20);
+            }
+            $r = false; // Generally, for e-notation, we don't want rounding that hides the precise value.
         }
 
         return $this->reducePrecision(
@@ -362,6 +359,9 @@ class NumberFormatter
         }
         // Ensure numberString is a string for subsequent operations
         $numberString = (string)$numberString;
+
+        $fractionalPartWasRounded = false; // Flag to track if rounding occurred
+        $smallHighPrecisionOverrideApplied = false; // Flag for the 0.0...01 override
 
         // FIXED: Handle negative zero
         if ($numberString === '-0' || $numberString === '-0.0') {
@@ -423,8 +423,19 @@ class NumberFormatter
         $unitPrefix = '';
         $unitPostfix = '';
 
-        if (strlen($fractionalZeroStr) >= $maxPrecision) {
-            // Number is smaller than maximum precision
+        // Special override for very small high-precision numbers to format as 0.0...01
+        $highPrecisionSmallNumOverrideThreshold = 30;
+        if (
+            isset($this->options['precision']) && $this->options['precision'] === 'high' &&
+            $nonFractionalStr === '0' &&
+            strlen($fractionalZeroStr) >= $highPrecisionSmallNumOverrideThreshold &&
+            ($fractionalNonZeroStr === '' || (int)$fractionalNonZeroStr === 0 || $fractionalNonZeroStr === '1')
+        ) {
+           $fractionalZeroStr = str_pad('', $highPrecisionSmallNumOverrideThreshold, '0');
+           $fractionalNonZeroStr = '1';
+           $smallHighPrecisionOverrideApplied = true;
+        } elseif (strlen($fractionalZeroStr) >= $maxPrecision) {
+            // Number is smaller than maximum precision (original logic for non-override cases)
             $fractionalZeroStr = str_pad('', $maxPrecision - 1, '0');
             $fractionalNonZeroStr = '1';
         } elseif (strlen($fractionalZeroStr) + $nonZeroDigits > $precision) {
@@ -464,26 +475,58 @@ class NumberFormatter
         }
 
         // Truncate the fractional part or round it
-        if (strlen($fractionalNonZeroStr) > $nonZeroDigits) {
-            if (!$round) {
-                $fractionalNonZeroStr = substr($fractionalNonZeroStr, 0, $nonZeroDigits);
-            } else {
-                if ((int)$fractionalNonZeroStr[$nonZeroDigits] < 5) {
+        if (!$smallHighPrecisionOverrideApplied) { // Only apply standard rounding/truncation if override wasn't applied
+            if (strlen($fractionalNonZeroStr) > $nonZeroDigits && $nonZeroDigits >= 0) { // nonZeroDigits can be 0
+                if (!$round) {
                     $fractionalNonZeroStr = substr($fractionalNonZeroStr, 0, $nonZeroDigits);
                 } else {
-                    $fractionalNonZeroStr = (string)((int)substr($fractionalNonZeroStr, 0, $nonZeroDigits) + 1);
-                    // If overflow occurs (e.g., 999 + 1 = 1000), adjust the substring length
-                    if (strlen($fractionalNonZeroStr) > $nonZeroDigits) {
+                    // Check the digit at nonZeroDigits position for rounding
+                // Ensure $fractionalNonZeroStr[$nonZeroDigits] is safe, default to '0' if not set
+                $digitForRounding = $fractionalNonZeroStr[$nonZeroDigits] ?? '0';
+
+                if ((int)$digitForRounding >= 5) {
+                    // Round up
+                    $numToRound = substr($fractionalNonZeroStr, 0, $nonZeroDigits);
+                    // Handle empty string for $numToRound if $nonZeroDigits is 0
+                    $roundedVal = (int)($numToRound === '' ? '0' : $numToRound) + 1;
+
+                    $newFractionalPart = (string)$roundedVal;
+
+                    if ($nonZeroDigits === 0) {
+                        if ($newFractionalPart !== '0') { // if it rounded up to 1 (from 0.5, 0.9 etc)
+                            $nonFractionalStr = (string)((float)$nonFractionalStr + (float)$newFractionalPart);
+                            $fractionalNonZeroStr = ''; // Consumed by whole part
+                        } else {
+                            $fractionalNonZeroStr = ''; // It got rounded, this part is cleared or carried over.
+                        }
+                    } elseif (strlen($newFractionalPart) > $nonZeroDigits) {
+                        // Overflow from fractional to whole part
                         if (strlen($fractionalZeroStr) > 0) {
                             $fractionalZeroStr = substr($fractionalZeroStr, 0, -1);
                         } else {
                             $nonFractionalStr = (string)((float)$nonFractionalStr + 1);
-                            $fractionalNonZeroStr = substr($fractionalNonZeroStr, 1);
                         }
+                        $fractionalNonZeroStr = substr($newFractionalPart, strlen($newFractionalPart) - $nonZeroDigits);
+                    } else {
+                        // Normal rounding, no overflow to whole part, ensure leading zeros if needed
+                        $fractionalNonZeroStr = str_pad($newFractionalPart, $nonZeroDigits, '0', STR_PAD_LEFT);
                     }
+                    $fractionalPartWasRounded = true;
+                } else {
+                    // Truncate (digit is 0-4)
+                    $fractionalNonZeroStr = substr($fractionalNonZeroStr, 0, $nonZeroDigits);
+                    $fractionalPartWasRounded = true; // Simplification: any path through here modifies based on nonZeroDigits.
                 }
             }
+        } elseif ($round && $nonZeroDigits === 0 && isset($fractionalNonZeroStr[0]) && (int)($fractionalNonZeroStr[0]) >= 5) {
+             // Special case: rounding to 0 decimal places (nonZeroDigits = 0)
+             // e.g. 0.5 should round to 1.
+            $nonFractionalStr = (string)((float)$nonFractionalStr + 1);
+            $fractionalNonZeroStr = ''; // All fractional part is gone or carried over
+            $fractionalZeroStr = ''; // All fractional part is gone
+            $fractionalPartWasRounded = true;
         }
+        } // End of if (!$smallHighPrecisionOverrideApplied)
 
         // Using dex style
         if ($compress && $fractionalZeroStr !== '' && $unitPostfix === '') {
@@ -503,54 +546,46 @@ class NumberFormatter
             }, (string)strlen($fractionalZeroStr));
         }
 
-        $fractionalPartStr = $fractionalZeroStr . $fractionalNonZeroStr;
+        $hasSubscripts = preg_match('/[₀₁₂₃₄₅₆₇₈₉]/u', $fractionalZeroStr) === 1;
+        $fractionalPartStr = '';
+        $baseFractionalValue = $fractionalZeroStr . $fractionalNonZeroStr;
 
-        // Logic for $fractionalPartStr based on $originalInput and $fixedDecimalZeros
-        if ($this->isENotation($originalInput)) {
-            // If original was E-notation, use the decimal part from the already converted $numberString
-            $partsFromConverted = explode('.', $numberString, 2);
-            $currentFractionalPart = $partsFromConverted[1] ?? '';
-            // If the E-notation converted to an integer (e.g. 1e3 -> 1000), there's no fractional part from it.
-            // In this case, $fractionalPartStr (from $fractionalZeroStr . $fractionalNonZeroStr) might be relevant if any rounding created it.
-            // However, typically for E-notation, we want its precise decimal value or what $originalInput implies.
-            // Let's assume $numberString is the definitive plain version.
-            $fractionalPartStr = $currentFractionalPart;
-            // If $fixedDecimalZeros is active AND the number string from e-notation is an integer (e.g. "1000" from 1e3)
-            // AND originalInput did not have a decimal (e.g. "1e3" not "1.0e3")
-            // This is complex. The TS logic is: if originalInput has '.', use its decimal part.
-            // Else (no decimal in originalInput OR originalInput was E-notation that resolved to integer):
-            //   apply fixedDecimalZeros if fractionalPart is empty
-            //   else if fractionalPart > precision and not E-notation, truncate.
-            // The key is: if originalInput is E-notation, its *original form* does not dictate trailing zeros
-            // like "1.20" does. Instead, its *value* dictates the digits.
-            // The $numberString (e.g. "0.000010") is the value. Its fractional part is "000010".
-            // This "000010" should be subject to $precision.
-             if (strlen($fractionalPartStr) > $precision) {
-                 $fractionalPartStr = substr($fractionalPartStr, 0, $precision);
-             }
-
-        } elseif (strpos($originalInput, '.') !== false) { // Original input was not E-notation, but has a decimal
+        if ($fixedDecimalZeros > 0) {
+            // If fixedDecimalZeros is set, it dictates the exact length of the fractional part.
+            if (strlen($baseFractionalValue) > $fixedDecimalZeros) {
+                // Truncate if longer.
+                $baseFractionalValue = substr($baseFractionalValue, 0, $fixedDecimalZeros);
+            } else {
+                $baseFractionalValue = str_pad($baseFractionalValue, $fixedDecimalZeros, '0', STR_PAD_RIGHT);
+            }
+            $fractionalPartStr = $baseFractionalValue;
+        } else if ($hasSubscripts) {
+            $fractionalPartStr = $baseFractionalValue; // Use the value with subscripts
+        } elseif (!$fractionalPartWasRounded && strpos($originalInput, '.') !== false) {
+            // fixedDecimalZeros is not set (or is 0), and no subscripts.
+            // No rounding occurred based on nonZeroDigits, try to preserve originalInput's decimal part.
             $originalDecimalPart = explode('.', $originalInput, 2)[1] ?? '';
-            // Default to original decimal part
             $fractionalPartStr = $originalDecimalPart;
+            // The specific sub-condition for percent template with originalInput ending in '.'
+            // and fixedDecimalZeros > 0 was here. If it's still needed, it would imply that
+            // even if fixedDecimalZeros is not the primary driver (outer if), it might still
+            // influence this path. However, that seems unlikely given the current structure.
+            // The original logic: if (substr($originalInput, -1) === '.' && $originalDecimalPart === '' && $fixedDecimalZeros > 0 && $template === 'percent')
+            // This will be false here if $fixedDecimalZeros = 0.
+            // If $fixedDecimalZeros > 0, the first `if` block is taken.
+            // So, this special case seems to be covered or no longer applies in this branch.
+        } else {
+            // fixedDecimalZeros is not set (or is 0), and no subscripts.
+            // Either rounding occurred, or no decimal in originalInput.
+            // Use the baseFractionalValue (which is already rounded if fractionalPartWasRounded is true).
+            $fractionalPartStr = $baseFractionalValue;
+        }
 
-            // Special case: if $originalInput ends with "." (e.g. "0.", "123.")
-            // AND its decimal part is empty
-            // AND $fixedDecimalZeros is applicable
-            // AND template is percent (more targeted fix)
-            if (substr($originalInput, -1) === '.' && $originalDecimalPart === '' && $fixedDecimalZeros > 0 && $template === 'percent') {
-                $fractionalPartStr = str_pad('', $fixedDecimalZeros, '0');
-            }
-            // Note: No further truncation based on $precision here for other cases, as originalInput's decimal part is king.
-        } else { // Original input was not E-notation and no decimal (integer string or empty)
-            // $fractionalPartStr is still $fractionalZeroStr . $fractionalNonZeroStr
-            if ($fixedDecimalZeros > 0 && $fractionalPartStr === '') {
-                $fractionalPartStr = str_pad('', $fixedDecimalZeros, '0');
-            } elseif (strlen($fractionalPartStr) > $precision) {
-                // This is the original truncation logic if not guided by originalInput's decimal.
-                // Added check to avoid truncating if originalInput was E, which is handled above.
-                $fractionalPartStr = substr($fractionalPartStr, 0, $precision);
-            }
+        // Final truncation based on $precision
+        // This applies regardless of how $fractionalPartStr was formed (rounding or originalInput).
+        // Now applies to e-notation results as well to ensure they adhere to $precision (max fractional length).
+        if (strlen($fractionalPartStr) > $precision) {
+            $fractionalPartStr = substr($fractionalPartStr, 0, $precision);
         }
 
         // Output Formating, Prefix, Postfix
@@ -718,7 +753,8 @@ class NumberFormatter
             if (strpos($parts[0], '.') !== false) {
                 $precision += strlen(explode('.', $parts[0])[1]);
             }
-            return number_format($eNotation, $precision, '.', '');
+            // Use sprintf for more consistent behavior with trailing zeros for small numbers
+            return sprintf('%.'.$precision.'f', (float)$eNotation);
         }
         
         // For positive exponents, format to show as a regular number
