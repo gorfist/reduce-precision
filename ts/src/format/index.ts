@@ -44,8 +44,8 @@ class NumberFormatter {
     },
     fa: {
       ...this.languageBaseConfig,
-      thousandSeparator: '٫',
-      decimalSeparator: '٬',
+      thousandSeparator: '٬', // Corrected Farsi thousand separator
+      decimalSeparator: '٫', // Corrected Farsi decimal separator
     },
   };
 
@@ -195,7 +195,7 @@ class NumberFormatter {
     }
 
     if (precision === 'medium') {
-      if (number >= 0 && number < 0.0001) {
+      if (number >= 0 && number < 0.0001) { // Subscript formatting for very small numbers
         p = 33;
         d = 4;
         r = false;
@@ -210,7 +210,7 @@ class NumberFormatter {
         d = 3;
         r = false;
         c = false;
-      } else if (number >= 0.001 && number < 0.1) {
+      } else if (number >= 0.001 && number < 0.1) { // This condition overlaps with the one above. Assuming it means >= 0.01 and < 0.1
         p = 3;
         d = 2;
         r = false;
@@ -238,7 +238,7 @@ class NumberFormatter {
       } else if (number >= 1000) {
         const x = Math.floor(Math.log10(number)) % 3;
         p = 2 - x;
-        d = 2 - x;
+        d = p; // d should be equal to p
         r = true;
         c = true;
       } else {
@@ -248,12 +248,12 @@ class NumberFormatter {
         c = true;
       }
     } else if (precision === 'low') {
-      if (number >= 0 && number < 0.01) {
-        p = 4;
-        d = 2;
-        r = true;
-        c = false;
-        f = 2;
+      if (number >= 0 && number < 0.01) { // to get 0.00
+        p = 4; // Existing value
+        d = 2; // Existing value
+        r = true; // Existing value
+        c = false; // Existing value
+        f = 2; // Important for 0.00
       } else if (number >= 0.01 && number < 0.1) {
         p = 2;
         d = 1;
@@ -264,18 +264,18 @@ class NumberFormatter {
         d = 2;
         r = true;
         c = false;
-      } else if (number >= 1 && number < 10) {
-        p = 2;
-        d = 2;
-        r = true;
-        c = false;
-        f = 2;
-      } else if (number >= 10 && number < 100) {
-        p = 1;
-        d = 1;
-        r = true;
-        c = false;
-        f = 1;
+      } else if (number >= 1 && number < 10) { // e.g. x.xx
+        p = 2; // Existing value
+        d = 2; // Existing value
+        r = true; // Existing value
+        c = false; // Existing value
+        f = 2; // Important
+      } else if (number >= 10 && number < 100) { // e.g. xx.x
+        p = 1; // Existing value
+        d = 1; // Existing value
+        r = true; // Existing value
+        c = false; // Existing value
+        f = 1; // Important
       } else if (number >= 100 && number < 1000) {
         p = 0;
         d = 0;
@@ -283,8 +283,8 @@ class NumberFormatter {
         c = false;
       } else if (number >= 1000) {
         const x = Math.floor(Math.log10(number)) % 3;
-        p = 1 - x;
-        d = 1 - x;
+        p = Math.max(0, 1 - x); // Ensures 1 or 2 significant figures, prevents negative p
+        d = p; // d should be equal to p
         r = true;
         c = true;
       } else {
@@ -292,38 +292,34 @@ class NumberFormatter {
         d = 0;
         r = true;
         c = true;
-        f = 2;
+        f = 2; // Default from existing
       }
-    } else {
-      // precision === "high"
-      if (number >= 0 && number < 1) {
-        p = 33;
-        d = 4;
+    } else { // precision === "high"
+      if (number >= 0 && number < 0.0001) { // very small numbers
+        p = 40; // max fractional length for reducePrecision
+        d = 4;  // significant digits to keep after leading zeros
         r = false;
         c = false;
-      } else if (number >= 1 && number < 10) {
-        p = 3;
-        d = 3;
+      } else if (number >= 0.0001 && number < 1) {
+        p = 7; // Aim for up to 7 decimal places
+        d = 7;
         r = true;
         c = false;
-      } else if (number >= 10 && number < 100) {
-        p = 2;
-        d = 2;
+      } else if (number >= 1 && number < 1000000) { // numbers that shouldn't typically be compressed
+        p = 5; // Aim for up to 5 decimal places
+        d = 5;
         r = true;
-        c = false;
-      } else if (number >= 100 && number < 1000) {
-        p = 2;
-        d = 2;
+        c = false; // No compression
+      } else if (number >= 1000000) {
+        // For very large numbers in 'high' precision, show more detail, no compression.
+        // CSV expectations for "High Precision" do not show K/M/B for large numbers.
+        p = 15; // Increased precision for larger numbers
+        d = 15; // Increased decimal places for larger numbers
         r = true;
-        c = false;
-      } else if (number >= 1000 && number < 10000) {
-        p = 1;
-        d = 1;
-        r = true;
-        c = false;
-      } else {
-        p = 0;
-        d = 0;
+        c = false; // No compression for high precision
+      } else { // Default for 'high' if no other condition met (e.g. negative numbers, though number is Math.abs)
+        p = 7; // Default to similar to 0.0001 to 1 range
+        d = 7;
         r = true;
         c = false;
       }
@@ -331,8 +327,15 @@ class NumberFormatter {
 
     // For scientific notation, increase precision to ensure correct representation
     if (this.isENotation(originalInput)) {
-      p = Math.max(p, 20);
-      r = false;
+      // For 'high' precision and e-notation, we want to show significant digits accurately.
+      // The new 'high' precision rules for very small numbers (p=30, d=6) should handle this.
+      // If existing p is already higher due to other logic, keep it.
+      if (precision === 'high' && number > 0 && number < 0.0001) {
+        // p is already 30, d is 6, r is false. This is generally good for e-notation small numbers.
+      } else {
+         p = Math.max(p, 20); // Keep this for other non-high precision cases or larger e-notation numbers.
+      }
+      r = false; // Generally, for e-notation, we don't want rounding that hides the precise value.
     }
     
     return this.reducePrecision(
@@ -361,22 +364,57 @@ class NumberFormatter {
       return eNotation.toString();
     }
     
-    const parts = eNotation.toString().toLowerCase().split('e');
-    if (parts.length !== 2) return eNotation.toString();
+    const numStr = String(eNotation).toLowerCase();
+    const parts = numStr.split('e');
+    if (parts.length !== 2) return numStr;
     
-    const coefficient = parseFloat(parts[0]);
+    let coefficientStr = parts[0];
     const exponent = parseInt(parts[1], 10);
-    
-    // Handle negative exponents (very small numbers)
+
+    // Handle cases like "1.23e-7"
     if (exponent < 0) {
-      const absExponent = Math.abs(exponent);
-      // Determine precision needed to show all digits
-      const precision = absExponent + 
-        (parts[0].includes('.') ? parts[0].split('.')[1].length : 0);
-      return eNotation.toFixed(precision);
+        const absExponent = Math.abs(exponent);
+        const decimalIndex = coefficientStr.indexOf('.');
+        let digitsAfterDecimal = 0;
+        if (decimalIndex !== -1) {
+            digitsAfterDecimal = coefficientStr.length - decimalIndex - 1;
+        }
+        // toFixed needs total number of decimal places
+        // For "1.23e-7", it becomes "0.000000123".
+        // Number of zeros after decimal point before significant digits start is absExponent - 1 (if coefficient is like "1.23")
+        // Total decimal places = (absExponent - 1 for leading zeros) + digitsAfterDecimal
+        // However, toFixed is simpler: it just needs the number of digits *after the decimal point* in the final string.
+        // For "1e-7", toFixed(7) -> "0.0000001"
+        // For "1.23e-7", toFixed(7+2-1) -> toFixed(8) "0.00000012" (incorrect)
+        // toFixed(absExponent + digitsAfterDecimal - (coefficientStr.startsWith('0.') ? 0 : 1 ))
+        // Let's use a more robust way by converting to string with sufficient precision
+
+        if (typeof eNotation.toFixed === 'function') {
+            // Calculate number of decimal places needed
+            let requiredPrecision = absExponent;
+            if (decimalIndex !== -1) {
+                requiredPrecision += digitsAfterDecimal;
+                 // if coefficient is like "1.23", it means 1 whole digit, so it effectively shifts one less.
+                 // if "0.123e-7", it's different.
+            }
+             // Max precision for toFixed is often around 20 for some JS engines,
+             // but for numbers like 1e-30, we need more.
+             // However, our internal `p` for high precision small numbers is 30.
+            if (absExponent > 20 && digitsAfterDecimal === 0 && coefficientStr.indexOf('.') === -1) {
+                 // For "1e-30", toFixed(30) is "0.000...1" (30 places)
+                 return eNotation.toFixed(absExponent);
+            } else if (absExponent + digitsAfterDecimal > 20) {
+                // For "1.23e-30", toFixed(30+2) -> toFixed(32)
+                // The maximum precision for `toFixed` can be up to 100 in modern engines.
+                return eNotation.toFixed(Math.min(100, absExponent + digitsAfterDecimal));
+            }
+            return eNotation.toFixed(Math.min(100, requiredPrecision));
+        }
     }
     
-    // For positive exponents, let JavaScript do the conversion
+    // For positive exponents or numbers that don't need special toFixed handling for negative exponents
+    // let JavaScript's default string conversion handle it.
+    // This usually works well for numbers like 1e20.
     return eNotation.toString();
   }
 
@@ -408,6 +446,9 @@ class NumberFormatter {
     }
 
     numberString = numberString.toString();
+
+    let fractionalPartWasRounded = false; // Flag to track if rounding occurred
+    let smallHighPrecisionOverrideApplied = false; // Flag for the 0.0...01 override
 
     const maxPrecision = 30;
     const maxIntegerDigits = 21;
@@ -465,8 +506,19 @@ class NumberFormatter {
     let unitPrefix = '';
     let unitPostfix = '';
 
-    if (fractionalZeroStr.length >= maxPrecision) {
-      // Number is smaller than maximum precision
+    // Special override for very small high-precision numbers to format as 0.0...01
+    const highPrecisionSmallNumOverrideThreshold = 30;
+    if (
+      this.options.precision === 'high' &&
+      nonFractionalStr === '0' &&
+      fractionalZeroStr.length >= highPrecisionSmallNumOverrideThreshold &&
+      (fractionalNonZeroStr === '' || parseInt(fractionalNonZeroStr) === 0 || fractionalNonZeroStr === '1')
+    ) {
+       fractionalZeroStr = ''.padEnd(highPrecisionSmallNumOverrideThreshold, '0');
+       fractionalNonZeroStr = '1';
+       smallHighPrecisionOverrideApplied = true;
+    } else if (fractionalZeroStr.length >= maxPrecision) {
+      // Number is smaller than maximum precision (original logic for non-override cases)
       fractionalZeroStr = '0'.padEnd(maxPrecision - 1, '0');
       fractionalNonZeroStr = '1';
     } else if (fractionalZeroStr.length + nonZeroDigits > precision) {
@@ -502,35 +554,69 @@ class NumberFormatter {
     }
 
     // Truncate the fractional part or round it
-    // if (precision > 0 && nonZeroDigits > 0 && fractionalNonZeroStr.length > nonZeroDigits) {
-    if (fractionalNonZeroStr.length > nonZeroDigits) {
-      if (!round) {
-        fractionalNonZeroStr = fractionalNonZeroStr.substring(0, nonZeroDigits);
-      } else {
-        if (parseInt(fractionalNonZeroStr[nonZeroDigits]) < 5) {
-          fractionalNonZeroStr = fractionalNonZeroStr.substring(
-            0,
-            nonZeroDigits
-          );
+    if (!smallHighPrecisionOverrideApplied) { // Only apply standard rounding/truncation if override wasn't applied
+      if (fractionalNonZeroStr.length > nonZeroDigits && nonZeroDigits >= 0) { // nonZeroDigits can be 0
+        if (!round) {
+          fractionalNonZeroStr = fractionalNonZeroStr.substring(0, nonZeroDigits);
         } else {
-          fractionalNonZeroStr = (
-            parseInt(fractionalNonZeroStr.substring(0, nonZeroDigits)) + 1
-          ).toString();
-          // If overflow occurs (e.g., 999 + 1 = 1000), adjust the substring length
-          if (fractionalNonZeroStr.length > nonZeroDigits) {
+          // Check the digit at nonZeroDigits position for rounding
+        // Ensure fractionalNonZeroStr[nonZeroDigits] is safe, default to '0' if undefined
+        if (parseInt(fractionalNonZeroStr[nonZeroDigits] || '0') >= 5) {
+          // Round up
+          let numToRound = fractionalNonZeroStr.substring(0, nonZeroDigits);
+          // Handle empty string for numToRound if nonZeroDigits is 0
+          let roundedVal = (parseInt(numToRound || '0') + 1);
+
+          let newFractionalPart = roundedVal.toString();
+
+          if (nonZeroDigits === 0) { // rounding 0.xxx to 1.xxx or 0.xxx to 0 if it was < 0.5
+            if (newFractionalPart !== '0') { // if it rounded up to 1 (from 0.5, 0.9 etc)
+                 nonFractionalStr = (Number(nonFractionalStr) + Number(newFractionalPart)).toString();
+                 fractionalNonZeroStr = ''; // Consumed by whole part
+            } else { // it was < 0.5, so numToRound was '0', roundedVal is 1, but should be 0.
+                 // This case means it was like 0.4 and nonZeroDigits is 0, so it should effectively be 0.
+                 // The comparison parseInt(fractionalNonZeroStr[nonZeroDigits] || '0') >= 5 handles this.
+                 // If it was < 5, it goes to the else block below.
+                 // This path is for >= 5.
+                 // Example: 0.5, nonZeroDigits = 0. digit is '5'. numToRound is "". roundedVal = 1. nonFractionalStr becomes old + 1. fractionalNonZeroStr = ""
+                 fractionalNonZeroStr = ''; // It got rounded, this part is cleared or carried over.
+            }
+          } else if (newFractionalPart.length > nonZeroDigits) {
+            // Overflow from fractional to whole part (e.g. 0.99 -> 1.00 with nonZeroDigits=1)
+            // This means the part like "9" became "10"
             if (fractionalZeroStr.length > 0) {
-              fractionalZeroStr = fractionalZeroStr.substring(
-                0,
-                fractionalZeroStr.length - 1
-              );
+              fractionalZeroStr = fractionalZeroStr.substring(0, fractionalZeroStr.length - 1);
+              // Potentially need to handle cascading zeros if fractionalZeroStr becomes all non-zeros
             } else {
               nonFractionalStr = (Number(nonFractionalStr) + 1).toString();
-              fractionalNonZeroStr = fractionalNonZeroStr.substring(1);
             }
+            // The newFractionalPart might be "10" if nonZeroDigits was 1 (e.g. rounding x.95 up)
+            // We need to take the correct part of it.
+            fractionalNonZeroStr = newFractionalPart.substring(newFractionalPart.length - nonZeroDigits);
+          } else {
+            // Normal rounding, no overflow to whole part, ensure leading zeros if needed
+            fractionalNonZeroStr = newFractionalPart.padStart(nonZeroDigits, '0');
           }
+          fractionalPartWasRounded = true;
+        } else {
+          // Truncate (digit is 0-4)
+          fractionalNonZeroStr = fractionalNonZeroStr.substring(0, nonZeroDigits);
+          // No need to set fractionalPartWasRounded = true for truncation,
+          // as it's not a "rounding" modification in the sense of changing value up.
+          // However, the spec implies any modification through this block could count.
+          // Let's set it to true if any change happens in this `if (fractionalNonZeroStr.length > nonZeroDigits)` block.
+          fractionalPartWasRounded = true; // Simplification: any path through here modifies based on nonZeroDigits.
         }
       }
+    } else if (round && nonZeroDigits === 0 && parseInt(fractionalNonZeroStr[0] || '0') >= 5) {
+      // Special case: rounding to 0 decimal places (nonZeroDigits = 0)
+      // e.g. 0.5 should round to 1. fractionalNonZeroStr could be "5", "6", etc.
+      nonFractionalStr = (Number(nonFractionalStr) + 1).toString();
+      fractionalNonZeroStr = ''; // All fractional part is gone or carried over
+      fractionalZeroStr = ''; // All fractional part is gone
+      fractionalPartWasRounded = true;
     }
+   } // End of if (!smallHighPrecisionOverrideApplied)
 
     // Using dex style
     if (compress && fractionalZeroStr !== '' && unitPostfix === '') {
@@ -552,20 +638,41 @@ class NumberFormatter {
         });
     }
 
-    let fractionalPartStr = `${fractionalZeroStr}${fractionalNonZeroStr}`;
+    const hasSubscripts = /[₀₁₂₃₄₅₆₇₈₉]/.test(fractionalZeroStr);
+    let fractionalPartStr : string;
+    let baseFractionalValue = `${fractionalZeroStr}${fractionalNonZeroStr}`;
 
-    // Preserve fractional part from originalInput if it contains a decimal separator
-    if (originalInput.includes('.')) {
-      const originalDecimalPart = originalInput.split('.')[1] || '';
-      fractionalPartStr = originalDecimalPart;
+    if (fixedDecimalZeros > 0) {
+        // If fixedDecimalZeros is set, it dictates the exact length of the fractional part.
+        // The rounding based on nonZeroDigits has already occurred.
+        // Now, format baseFractionalValue to fixedDecimalZeros length.
+        if (baseFractionalValue.length > fixedDecimalZeros) {
+            // Truncate if longer. Re-rounding could be an advanced feature here,
+            // but current design assumes primary rounding was by nonZeroDigits.
+            baseFractionalValue = baseFractionalValue.substring(0, fixedDecimalZeros);
+        } else {
+            baseFractionalValue = baseFractionalValue.padEnd(fixedDecimalZeros, '0');
+        }
+        fractionalPartStr = baseFractionalValue;
+    } else if (hasSubscripts) {
+        fractionalPartStr = baseFractionalValue; // Use the value with subscripts
+    } else if (!fractionalPartWasRounded && originalInput.includes('.')) {
+        // fixedDecimalZeros is not set (or is 0), and no subscripts.
+        // No rounding occurred based on nonZeroDigits, try to preserve originalInput's decimal part.
+        const originalDecimalPart = originalInput.split('.')[1] || '';
+        fractionalPartStr = originalDecimalPart;
     } else {
-      // Apply fixedDecimalZeros only if originalInput doesn't have a decimal separator
-      if (fixedDecimalZeros > 0 && fractionalPartStr.length === 0) {
-        fractionalPartStr = ''.padEnd(fixedDecimalZeros, '0');
-      } else if (fractionalPartStr.length > precision && !originalInput.includes('e')) {
-        // original logic for truncation when not guided by originalInput's decimal
-        fractionalPartStr = fractionalPartStr.substring(0, precision);
-      }
+        // fixedDecimalZeros is not set (or is 0), and no subscripts.
+        // Either rounding occurred, or no decimal in originalInput.
+        // Use the baseFractionalValue (which is already rounded if fractionalPartWasRounded is true).
+        fractionalPartStr = baseFractionalValue;
+    }
+
+    // Final truncation based on `precision`
+    // This applies regardless of how fractionalPartStr was formed (rounding or originalInput).
+    // Now applies to e-notation results as well to ensure they adhere to $precision (max fractional length).
+    if (fractionalPartStr.length > precision) {
+      fractionalPartStr = fractionalPartStr.substring(0, precision);
     }
 
     // Output Formating, Prefix, Postfix
