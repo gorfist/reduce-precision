@@ -153,10 +153,24 @@ class NumberFormatter
         }
 
         $numberString = (string)$input;
+        // Convert Persian/Arabic numerals to English numerals first
         $numberString = preg_replace_callback('/[\x{0660}-\x{0669}\x{06F0}-\x{06F9}]/u', function ($match) {
             return mb_chr(ord($match[0]) - 1728);
         }, $numberString);
-        $numberString = preg_replace('/[^\d.-]/', '', $numberString);
+
+        // Get the configured decimal separator, defaulting to '.'
+        $currentDecimalSeparator = $this->options['decimalSeparator'] ?? '.';
+
+        if (($this->options['language'] ?? 'en') === 'fa') {
+            // For Persian, explicitly replace all English dots with the Persian decimal separator.
+            // This allows users to type '.' and have it treated as the configured Persian separator (e.g., '٫').
+            $numberString = str_replace('.', $currentDecimalSeparator, $numberString);
+        }
+
+        // Sanitize the numberString:
+        // Keep only digits, the currentDecimalSeparator, and the hyphen.
+        // preg_quote is used to escape the decimal separator if it's a special regex character.
+        $numberString = preg_replace('/[^\d' . preg_quote($currentDecimalSeparator, '/') . '-]/u', '', $numberString);
 
         // Stripping leading zeros only, preserve trailing zeros
         $numberString = preg_replace('/^0+(?=\d)/', '', $numberString);
@@ -403,8 +417,12 @@ class NumberFormatter
             ];
 
         $parts = [];
-        // Changed \d+ to \d* for the non-fractional part
-        preg_match('/^(-)?(\d*)\.?([0]*)(\d*)$/u', $numberString, $parts);
+        // Fetch the decimal separator from options, default to '.'
+        $optionsDecimalSeparator = $this->options['decimalSeparator'] ?? '.';
+        // Escape the decimal separator for use in regex
+        $decimalSepPattern = preg_quote($optionsDecimalSeparator, '/');
+        // Dynamically construct the regex for parsing parts
+        preg_match('/^(-)?(\\d*)' . $decimalSepPattern . '?([0]*)(\\d*)$/u', $numberString, $parts);
 
         if (empty($parts)) {
             // This case should ideally not be reached if numberString is validated,

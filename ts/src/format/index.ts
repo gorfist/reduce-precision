@@ -165,17 +165,29 @@ class NumberFormatter {
       input = this.convertENotationToRegularNumber(Number(input));
     }
 
-    // Replace each Persian/Arabic numeral in the string with its English counterpart and strip all non-numeric chars
-    let numberString = input
-      .toString()
-      .replace(/[\u0660-\u0669\u06F0-\u06F9]/g, function (match: string) {
-        return String(match.charCodeAt(0) & 0xf);
-      })
-      .replace(/[^\d.-]/g, '');
+    // Replace each Persian/Arabic numeral in the string with its English counterpart
+    let numberString = input.toString().replace(/[\u0660-\u0669\u06F0-\u06F9]/g, function (match: string) {
+      return String(match.charCodeAt(0) & 0xf);
+    });
+
+    // Get the configured decimal separator, defaulting to '.'
+    const currentDecimalSeparator = this.options.decimalSeparator || '.';
+
+    if (this.options.language === 'fa') {
+      // For Persian, explicitly replace all English dots with the Persian decimal separator.
+      // This allows users to type '.' and have it treated as the configured Persian separator (e.g., '٫').
+      numberString = numberString.replace(/\./g, currentDecimalSeparator);
+    }
+
+    // Sanitize the numberString:
+    // Keep only digits, the currentDecimalSeparator, and the hyphen.
+    // Escape the decimalSeparator if it's a special regex character (e.g., '.').
+    const escapedDecimalSeparator = currentDecimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sanitizeRegex = new RegExp(`[^\\d${escapedDecimalSeparator}-]`, 'g');
+    numberString = numberString.replace(sanitizeRegex, '');
 
     // Stripping leading zeros only, preserve trailing zeros
-    numberString = numberString
-      .replace(/^0+(?=\d)/g, '');
+    numberString = numberString.replace(/^0+(?=\d)/g, '');
 
     const number = Math.abs(Number(numberString));
     let p, d, r, c;
@@ -492,7 +504,11 @@ class NumberFormatter {
           Qt: ' کنتیلیون تومان',
         };
 
-    let parts = /^(-)?(\d*)\.?([0]*)(\d*)$/g.exec(numberString);
+    // Escape the decimalSeparator for use in the regex
+    // The decimalSeparator parameter comes from this.options in the format method
+    const decimalSepPattern = decimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const partsRegex = new RegExp(`^(-)?(\\d*)${decimalSepPattern}?([0]*)(\\d*)$`);
+    let parts = partsRegex.exec(numberString);
 
     if (!parts) {
       return {} as FormattedObject;
