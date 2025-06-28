@@ -307,47 +307,26 @@ class NumberFormatter {
         f = 2; // Default from existing
       }
     } else { // precision === "high"
-      if (number >= 0 && number < 0.0001) { // very small numbers
-        p = 40; // max fractional length for reducePrecision
-        d = 4;  // significant digits to keep after leading zeros
-        r = false;
-        c = false;
-      } else if (number >= 0.0001 && number < 1) {
-        p = 7; // Aim for up to 7 decimal places
-        d = 7;
-        r = true;
-        c = false;
-      } else if (number >= 1 && number < 1000000) { // numbers that shouldn't typically be compressed
-        p = 5; // Aim for up to 5 decimal places
-        d = 5;
-        r = true;
-        c = false; // No compression
-      } else if (number >= 1000000) {
-        // For very large numbers in 'high' precision, show more detail, no compression.
-        // CSV expectations for "High Precision" do not show K/M/B for large numbers.
-        p = 15; // Increased precision for larger numbers
-        d = 15; // Increased decimal places for larger numbers
-        r = true;
-        c = false; // No compression for high precision
-      } else { // Default for 'high' if no other condition met (e.g. negative numbers, though number is Math.abs)
-        p = 7; // Default to similar to 0.0001 to 1 range
-        d = 7;
-        r = true;
-        c = false;
-      }
+        // For 'high' precision, allow user to input as many decimals as they want.
+        // Set p (max fractional length) and d (target non-zero digits) to a high value.
+        // JavaScript's number precision and toFixed() max out effectively around 100.
+        p = 100;
+        d = 100;
+        r = false; // Do not round user's explicitly entered decimals for 'high' precision.
+        c = false; // No compression for 'high' precision.
+        // f (fixedDecimalZeros) is not typically set for general 'high' precision input handling;
+        // it's more for specific output formatting. It remains 0 by default.
     }
 
-    // For scientific notation, increase precision to ensure correct representation
+    // For scientific notation (e-notation)
     if (this.isENotation(originalInput)) {
-      // For 'high' precision and e-notation, we want to show significant digits accurately.
-      // The new 'high' precision rules for very small numbers (p=30, d=6) should handle this.
-      // If existing p is already higher due to other logic, keep it.
-      if (precision === 'high' && number > 0 && number < 0.0001) {
-        // p is already 30, d is 6, r is false. This is generally good for e-notation small numbers.
-      } else {
-         p = Math.max(p, 20); // Keep this for other non-high precision cases or larger e-notation numbers.
+      // If original precision was 'high', p, d, r are already set (100, 100, false).
+      // This should help preserve as much precision as possible when converting e-notation.
+      // If original precision was 'medium' or 'low', apply existing logic.
+      if (precision !== 'high') {
+         p = Math.max(p, 20); // Ensure enough precision for typical e-notation.
+         r = false; // Avoid rounding e-notation for medium/low too, if it was auto.
       }
-      r = false; // Generally, for e-notation, we don't want rounding that hides the precise value.
     }
     
     return this.reducePrecision(
@@ -658,33 +637,35 @@ class NumberFormatter {
     let fractionalPartStr : string;
     let baseFractionalValue = `${fractionalZeroStr}${fractionalNonZeroStr}`;
 
-    if (fixedDecimalZeros > 0) {
+    // Determine if this call is for 'high' precision based on the passed parameters
+    // (p=100, d=100, r=false indicate 'high' precision mode from format method)
+    const isEffectiveHighPrecision = (precision === 100 && nonZeroDigits === 100 && round === false);
+
+    if (isEffectiveHighPrecision) {
+        // For high precision, always use the (potentially very long) baseFractionalValue.
+        // baseFractionalValue is derived from numberString, which includes all entered (and sanitized) decimals.
+        // This ensures trailing zeros from input are preserved if they made it into numberString.
+        fractionalPartStr = baseFractionalValue;
+    } else if (fixedDecimalZeros > 0) {
         // If fixedDecimalZeros is set, it dictates the exact length of the fractional part.
-        // The rounding based on nonZeroDigits has already occurred.
-        // Now, format baseFractionalValue to fixedDecimalZeros length.
         if (baseFractionalValue.length > fixedDecimalZeros) {
-            // Truncate if longer. Re-rounding could be an advanced feature here,
-            // but current design assumes primary rounding was by nonZeroDigits.
             baseFractionalValue = baseFractionalValue.substring(0, fixedDecimalZeros);
         } else {
             baseFractionalValue = baseFractionalValue.padEnd(fixedDecimalZeros, '0');
         }
         fractionalPartStr = baseFractionalValue;
-    } else if (hasSubscripts) {
-        fractionalPartStr = baseFractionalValue; // Use the value with subscripts
-    } else if (!fractionalPartWasRounded && originalInput.includes('.')) {
-        // fixedDecimalZeros is not set (or is 0), and no subscripts.
-        // No rounding occurred based on nonZeroDigits, try to preserve originalInput's decimal part.
-        const originalDecimalPart = originalInput.split('.')[1] || '';
-        fractionalPartStr = originalDecimalPart;
+    } else if (hasSubscripts) { // Typically for 'medium' precision small numbers
+        fractionalPartStr = baseFractionalValue;
+    } else if (!fractionalPartWasRounded && numberString.includes(decimalSeparator)) {
+        // For 'medium' or 'low' precision, if not rounded and input had decimals (after sanitization).
+        // Use baseFractionalValue as it's derived from the sanitized numberString and preserves trailing zeros from it.
+        fractionalPartStr = baseFractionalValue;
     } else {
-        // fixedDecimalZeros is not set (or is 0), and no subscripts.
-        // Either rounding occurred, or no decimal in originalInput.
-        // Use the baseFractionalValue (which is already rounded if fractionalPartWasRounded is true).
+        // For 'medium' or 'low' precision, if rounding occurred or no decimal in sanitized input.
         fractionalPartStr = baseFractionalValue;
     }
 
-    // Final truncation based on `precision`
+    // Final truncation based on `precision` (the 'p' parameter)
     // This applies regardless of how fractionalPartStr was formed (rounding or originalInput).
     // Now applies to e-notation results as well to ensure they adhere to $precision (max fractional length).
     if (fractionalPartStr.length > precision) {
