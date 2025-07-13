@@ -161,17 +161,14 @@ class NumberFormatter
 
         // Get the configured decimal separator, defaulting to '.'
         $currentDecimalSeparator = $this->options['decimalSeparator'] ?? '.';
-
-        if (($this->options['language'] ?? 'en') === 'fa') {
-            // For Persian, explicitly replace all English dots with the Persian decimal separator.
-            // This allows users to type '.' and have it treated as the configured Persian separator (e.g., '٫').
-            $numberString = str_replace('.', $currentDecimalSeparator, $numberString);
-        }
+        $altDecimalSeparator = $currentDecimalSeparator === '.' ? '٫' : '.';
 
         // Sanitize the numberString:
-        // Keep only digits, the currentDecimalSeparator, and the hyphen.
-        // preg_quote is used to escape the decimal separator if it's a special regex character.
-        $numberString = preg_replace('/[^\d' . preg_quote($currentDecimalSeparator, '/') . '-]/u', '', $numberString);
+        // Keep only digits, both decimal separators, and the hyphen.
+        $numberString = preg_replace('/[^\d' . preg_quote($currentDecimalSeparator, '/') . preg_quote($altDecimalSeparator, '/') . '-]/u', '', $numberString);
+
+        // Normalize the alternative decimal separator to the current one.
+        $numberString = str_replace($altDecimalSeparator, $currentDecimalSeparator, $numberString);
 
         // Stripping leading zeros only, preserve trailing zeros
         $numberString = preg_replace('/^0+(?=\d)/', '', $numberString);
@@ -294,34 +291,6 @@ class NumberFormatter
                 $r = true;
                 $c = true;
                 $f = 2; // Default from existing
-            }
-        } else { // $precision === "high"
-            if ($number >= 0 && $number < 0.0001) { // very small numbers
-                $p = 40; // max fractional length for reducePrecision
-                $d = 4;  // significant digits to keep after leading zeros
-                $r = false;
-                $c = false;
-            } elseif ($number >= 0.0001 && $number < 1) {
-                $p = 7;  // Aim for up to 7 decimal places
-                $d = 7;
-                $r = true;
-                $c = false;
-            } elseif ($number >= 1 && $number < 1000000) { // numbers that shouldn't typically be compressed
-                $p = 5;  // Aim for up to 5 decimal places
-                $d = 5;
-                $r = true;
-                $c = false; // No compression
-            } elseif ($number >= 1000000) {
-                // For very large numbers in 'high' precision, show more detail, no compression.
-                $p = 15; // Increased precision
-                $d = 15; // Increased decimal places
-                $r = true;
-                $c = false; // No compression for high precision
-            } else { // Default for 'high' if no other condition met
-                $p = 7;
-                $d = 7;
-                $r = true;
-                $c = false;
             }
         } else { // $precision === "high" (or was resolved to 'high' by auto logic)
             // For 'high' precision, allow user to input as many decimals as they want.

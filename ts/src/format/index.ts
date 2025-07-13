@@ -172,19 +172,18 @@ class NumberFormatter {
 
     // Get the configured decimal separator, defaulting to '.'
     const currentDecimalSeparator = this.options.decimalSeparator || '.';
-
-    if (this.options.language === 'fa') {
-      // For Persian, explicitly replace all English dots with the Persian decimal separator.
-      // This allows users to type '.' and have it treated as the configured Persian separator (e.g., '٫').
-      numberString = numberString.replace(/\./g, currentDecimalSeparator);
-    }
+    const altDecimalSeparator = currentDecimalSeparator === '.' ? '٫' : '.';
 
     // Sanitize the numberString:
-    // Keep only digits, the currentDecimalSeparator, and the hyphen.
-    // Escape the decimalSeparator if it's a special regex character (e.g., '.').
+    // Keep only digits, both decimal separators, and the hyphen.
+    // Escape the decimalSeparators if it's a special regex character (e.g., '.').
     const escapedDecimalSeparator = currentDecimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const sanitizeRegex = new RegExp(`[^\\d${escapedDecimalSeparator}-]`, 'g');
+    const escapedAltDecimalSeparator = altDecimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sanitizeRegex = new RegExp(`[^\\d${escapedDecimalSeparator}${escapedAltDecimalSeparator}-]`, 'g');
     numberString = numberString.replace(sanitizeRegex, '');
+
+    // Normalize the alternative decimal separator to the current one.
+    numberString = numberString.replace(new RegExp(escapedAltDecimalSeparator, 'g'), currentDecimalSeparator);
 
     // Stripping leading zeros only, preserve trailing zeros
     numberString = numberString.replace(/^0+(?=\d)/g, '');
