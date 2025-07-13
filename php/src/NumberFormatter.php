@@ -127,7 +127,8 @@ class NumberFormatter
 
     private function format($input)
     {
-        $precision = $this->options['precision'];
+        $currentOptionPrecision = $this->options['precision']; // Store original precision option
+        $precision = $currentOptionPrecision; // Use a mutable copy for auto logic
         $template = $this->options['template'];
         $language = $this->options['language'];
         $outputFormat = $this->options['outputFormat'];
@@ -153,10 +154,24 @@ class NumberFormatter
         }
 
         $numberString = (string)$input;
+        // Convert Persian/Arabic numerals to English numerals first
         $numberString = preg_replace_callback('/[\x{0660}-\x{0669}\x{06F0}-\x{06F9}]/u', function ($match) {
             return mb_chr(ord($match[0]) - 1728);
         }, $numberString);
-        $numberString = preg_replace('/[^\d.-]/', '', $numberString);
+
+        // Get the configured decimal separator, defaulting to '.'
+        $currentDecimalSeparator = $this->options['decimalSeparator'] ?? '.';
+
+        if (($this->options['language'] ?? 'en') === 'fa') {
+            // For Persian, explicitly replace all English dots with the Persian decimal separator.
+            // This allows users to type '.' and have it treated as the configured Persian separator (e.g., '٫').
+            $numberString = str_replace('.', $currentDecimalSeparator, $numberString);
+        }
+
+        // Sanitize the numberString:
+        // Keep only digits, the currentDecimalSeparator, and the hyphen.
+        // preg_quote is used to escape the decimal separator if it's a special regex character.
+        $numberString = preg_replace('/[^\d' . preg_quote($currentDecimalSeparator, '/') . '-]/u', '', $numberString);
 
         // Stripping leading zeros only, preserve trailing zeros
         $numberString = preg_replace('/^0+(?=\d)/', '', $numberString);
@@ -308,16 +323,25 @@ class NumberFormatter
                 $r = true;
                 $c = false;
             }
+        } else { // $precision === "high" (or was resolved to 'high' by auto logic)
+            // For 'high' precision, allow user to input as many decimals as they want.
+            // Set p (max fractional length) and d (target non-zero digits) to a high value.
+            // PHP string functions handle large strings well, so 100 is a safe upper bound like in JS.
+            $p = 100;
+            $d = 100;
+            $r = false; // Do not round user's explicitly entered decimals for 'high' precision.
+            $c = false; // No compression for 'high' precision.
+            // $f (fixedDecimalZeros) remains 0 by default.
         }
 
-        // For scientific notation, adjust settings similar to TypeScript
+        // For scientific notation (e-notation)
         if ($this->isENotation($originalInput)) {
-            if ($precision === 'high' && $number > 0 && $number < 0.0001) {
-                // p is already 30, d is 6, r is false. This is generally good for e-notation small numbers.
-            } else {
+            // If original option was 'high' (or resolved to 'high'), p,d,r are already set (100,100,false)
+            // If original option was 'medium' or 'low', apply specific e-notation adjustments.
+            if ($currentOptionPrecision !== 'high' && $precision !== 'high') {
                  $p = max($p, 20);
+                 $r = false;
             }
-            $r = false; // Generally, for e-notation, we don't want rounding that hides the precise value.
         }
 
         return $this->reducePrecision(
@@ -335,6 +359,8 @@ class NumberFormatter
             $prefix, 
             $postfix,
             $originalInput
+            // Pass $currentOptionPrecision to reducePrecision if it needs to know the original setting
+            // For now, we derive isEffectiveHighPrecision from p, d, r values.
         );
     }
 
@@ -403,8 +429,12 @@ class NumberFormatter
             ];
 
         $parts = [];
-        // Changed \d+ to \d* for the non-fractional part
-        preg_match('/^(-)?(\d*)\.?([0]*)(\d*)$/u', $numberString, $parts);
+        // Fetch the decimal separator from options, default to '.'
+        $optionsDecimalSeparator = $this->options['decimalSeparator'] ?? '.';
+        // Escape the decimal separator for use in regex
+        $decimalSepPattern = preg_quote($optionsDecimalSeparator, '/');
+        // Dynamically construct the regex for parsing parts
+        preg_match('/^(-)?(\\d*)' . $decimalSepPattern . '?([0]*)(\\d*)$/u', $numberString, $parts);
 
         if (empty($parts)) {
             // This case should ideally not be reached if numberString is validated,
@@ -550,38 +580,35 @@ class NumberFormatter
         $fractionalPartStr = '';
         $baseFractionalValue = $fractionalZeroStr . $fractionalNonZeroStr;
 
-        if ($fixedDecimalZeros > 0) {
+        // Determine if this call is for 'high' precision based on the passed parameters
+        // (p=100, d=100, r=false indicate 'high' precision mode from format method)
+        $isEffectiveHighPrecision = ($precision === 100 && $nonZeroDigits === 100 && $round === false);
+        $optionsDecimalSeparator = $this->options['decimalSeparator'] ?? '.'; // needed for numberString.includes(decimalSeparator) check
+
+        if ($isEffectiveHighPrecision) {
+            // For high precision, always use the (potentially very long) baseFractionalValue.
+            // baseFractionalValue is derived from numberString, which includes all entered (and sanitized) decimals.
+            $fractionalPartStr = $baseFractionalValue;
+        } elseif ($fixedDecimalZeros > 0) {
             // If fixedDecimalZeros is set, it dictates the exact length of the fractional part.
             if (strlen($baseFractionalValue) > $fixedDecimalZeros) {
-                // Truncate if longer.
                 $baseFractionalValue = substr($baseFractionalValue, 0, $fixedDecimalZeros);
             } else {
                 $baseFractionalValue = str_pad($baseFractionalValue, $fixedDecimalZeros, '0', STR_PAD_RIGHT);
             }
             $fractionalPartStr = $baseFractionalValue;
-        } else if ($hasSubscripts) {
-            $fractionalPartStr = $baseFractionalValue; // Use the value with subscripts
-        } elseif (!$fractionalPartWasRounded && strpos($originalInput, '.') !== false) {
-            // fixedDecimalZeros is not set (or is 0), and no subscripts.
-            // No rounding occurred based on nonZeroDigits, try to preserve originalInput's decimal part.
-            $originalDecimalPart = explode('.', $originalInput, 2)[1] ?? '';
-            $fractionalPartStr = $originalDecimalPart;
-            // The specific sub-condition for percent template with originalInput ending in '.'
-            // and fixedDecimalZeros > 0 was here. If it's still needed, it would imply that
-            // even if fixedDecimalZeros is not the primary driver (outer if), it might still
-            // influence this path. However, that seems unlikely given the current structure.
-            // The original logic: if (substr($originalInput, -1) === '.' && $originalDecimalPart === '' && $fixedDecimalZeros > 0 && $template === 'percent')
-            // This will be false here if $fixedDecimalZeros = 0.
-            // If $fixedDecimalZeros > 0, the first `if` block is taken.
-            // So, this special case seems to be covered or no longer applies in this branch.
+        } elseif ($hasSubscripts) { // Typically for 'medium' precision small numbers
+            $fractionalPartStr = $baseFractionalValue;
+        } elseif (!$fractionalPartWasRounded && strpos($numberString, $optionsDecimalSeparator) !== false) {
+            // For 'medium' or 'low' precision, if not rounded and input had decimals (after sanitization).
+            // Use baseFractionalValue as it's derived from the sanitized numberString.
+            $fractionalPartStr = $baseFractionalValue;
         } else {
-            // fixedDecimalZeros is not set (or is 0), and no subscripts.
-            // Either rounding occurred, or no decimal in originalInput.
-            // Use the baseFractionalValue (which is already rounded if fractionalPartWasRounded is true).
+            // For 'medium' or 'low' precision, if rounding occurred or no decimal in sanitized input.
             $fractionalPartStr = $baseFractionalValue;
         }
 
-        // Final truncation based on $precision
+        // Final truncation based on $precision (the 'p' parameter)
         // This applies regardless of how $fractionalPartStr was formed (rounding or originalInput).
         // Now applies to e-notation results as well to ensure they adhere to $precision (max fractional length).
         if (strlen($fractionalPartStr) > $precision) {
